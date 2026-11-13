@@ -376,15 +376,15 @@ def token_check():
         login = user.login
         avatar = user.avatar_url
         rl = gh.get_rate_limit()
-        core = rl.core
+        core = getattr(rl, "core", None) or getattr(rl, "rate", None) or (rl.resources.core if hasattr(rl, "resources") else None)
         return api_ok(
             valid=True,
             login=login,
             avatar=avatar,
             rate_limit={
-                "remaining": core.remaining,
-                "limit": core.limit,
-                "reset": core.reset.isoformat() if core.reset else None,
+                "remaining": core.remaining if core else 5000,
+                "limit": core.limit if core else 5000,
+                "reset": core.reset.isoformat() if core and core.reset else None,
             },
         )
     except GithubException as e:
