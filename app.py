@@ -639,14 +639,27 @@ def _upload_bytes_to_repo(repo, raw, path, message, branch, overwrite=True):
         log.info("  → blob created: %s", blob.sha[:7])
 
         def commit_once():
-            ref         = repo.get_git_ref(f"heads/{branch}")
-            base_commit = repo.get_git_commit(ref.object.sha)
-            base_tree   = base_commit.tree
+            try:
+                ref         = repo.get_git_ref(f"heads/{branch}")
+                base_commit = repo.get_git_commit(ref.object.sha)
+                base_tree   = base_commit.tree
+                parent_commits = [base_commit]
+            except Exception:
+                ref         = None
+                base_tree   = None
+                parent_commits = []
+
             element     = InputGitTreeElement(
                 path=path, mode="100644", type="blob", sha=blob.sha)
-            new_tree    = repo.create_git_tree([element], base_tree=base_tree)
-            new_commit  = repo.create_git_commit(message, new_tree, [base_commit])
-            ref.edit(new_commit.sha)
+            if base_tree:
+                new_tree = repo.create_git_tree([element], base_tree=base_tree)
+            else:
+                new_tree = repo.create_git_tree([element])
+            new_commit  = repo.create_git_commit(message, new_tree, parent_commits)
+            if ref:
+                ref.edit(new_commit.sha)
+            else:
+                repo.create_git_ref(f"refs/heads/{branch}", new_commit.sha)
             return new_commit
 
         new_commit = _retry_github(commit_once)
@@ -844,12 +857,25 @@ def commit_tree():
 
     def commit_once():
         log.info("commit_tree: %d entries on heads/%s", len(elements), branch)
-        ref         = repo.get_git_ref(f"heads/{branch}")
-        base_commit = repo.get_git_commit(ref.object.sha)
-        base_tree   = base_commit.tree
-        new_tree    = repo.create_git_tree(elements, base_tree=base_tree)
-        new_commit  = repo.create_git_commit(message, new_tree, [base_commit])
-        ref.edit(new_commit.sha)
+        try:
+            ref         = repo.get_git_ref(f"heads/{branch}")
+            base_commit = repo.get_git_commit(ref.object.sha)
+            base_tree   = base_commit.tree
+            parent_commits = [base_commit]
+        except Exception:
+            ref         = None
+            base_tree   = None
+            parent_commits = []
+
+        if base_tree:
+            new_tree = repo.create_git_tree(elements, base_tree=base_tree)
+        else:
+            new_tree = repo.create_git_tree(elements)
+        new_commit  = repo.create_git_commit(message, new_tree, parent_commits)
+        if ref:
+            ref.edit(new_commit.sha)
+        else:
+            repo.create_git_ref(f"refs/heads/{branch}", new_commit.sha)
         return new_commit
 
     new_commit = _retry_github(commit_once)
@@ -969,16 +995,30 @@ def upload_folder_atomic():
 
     def commit_once():
         log.info("  → get_git_ref heads/%s", branch)
-        ref         = repo.get_git_ref(f"heads/{branch}")
-        log.info("  → get_git_commit %s", ref.object.sha[:7])
-        base_commit = repo.get_git_commit(ref.object.sha)
-        base_tree   = base_commit.tree
+        try:
+            ref         = repo.get_git_ref(f"heads/{branch}")
+            log.info("  → get_git_commit %s", ref.object.sha[:7])
+            base_commit = repo.get_git_commit(ref.object.sha)
+            base_tree   = base_commit.tree
+            parent_commits = [base_commit]
+        except Exception:
+            ref         = None
+            base_tree   = None
+            parent_commits = []
+
         log.info("  → create_git_tree (%d elements)", len(elements))
-        new_tree    = repo.create_git_tree(elements, base_tree=base_tree)
+        if base_tree:
+            new_tree    = repo.create_git_tree(elements, base_tree=base_tree)
+        else:
+            new_tree    = repo.create_git_tree(elements)
         log.info("  → create_git_commit")
-        new_commit  = repo.create_git_commit(message, new_tree, [base_commit])
-        log.info("  → ref.edit %s", new_commit.sha[:7])
-        ref.edit(new_commit.sha)
+        new_commit  = repo.create_git_commit(message, new_tree, parent_commits)
+        if ref:
+            log.info("  → ref.edit %s", new_commit.sha[:7])
+            ref.edit(new_commit.sha)
+        else:
+            log.info("  → create_git_ref refs/heads/%s", branch)
+            repo.create_git_ref(f"refs/heads/{branch}", new_commit.sha)
         return new_commit
 
     new_commit = _retry_github(commit_once)
